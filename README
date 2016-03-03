@@ -7,7 +7,8 @@ lacks some of the deeper features of PyGrADS, but has some unique functionality 
        DEPENDENCIES
 ---------------------------
 
-Py3GrADS requires NumPy.
+Py3GrADS requires NumPy and a working GrADS installation.
+Py3GrADS has only been tested with GrADS version 2.1.a3.
 
 ---------------------------
        INSTALLATION
