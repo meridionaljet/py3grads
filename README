@@ -1,0 +1,57 @@
+Py3GrADS is a Python module providing an interface to the GrADS meteorological plotting program.
+This interface is independent from but inspired by Arlindo da Silva's work on PyGrADS. As of this
+writing, PyGrADS doesn't support Python 3, and Py3GrADS was developed to fill this hole. Py3GrADS
+lacks some of the deeper features of PyGrADS, but has some unique functionality of its own as well.
+
+---------------------------
+       DEPENDENCIES
+---------------------------
+
+Py3GrADS requires NumPy.
+
+---------------------------
+       INSTALLATION
+---------------------------
+
+Py3GrADS is simply a Python module, so cloning https://github.com/meridionaljet/py3grads
+is all that is needed for installation. Note, however, that the installation directory
+must be included in your PYTHONPATH environment variable in order to import the module.
+
+---------------------------
+           USAGE
+---------------------------
+
+The primary purpose of Py3GrADS is to pass commands directly to an instance of GrADS
+from within a Python script. To this end, this module centers around a GrADS object,
+which can be initialized like this:
+
+>>> from py3grads import gacore
+>>> ga = gacore.Grads()
+
+Then GrADS commands can be passed as strings to this object:
+
+>>> ga('open mslp.ctl')
+>>> out, rc = ga('query file')
+
+Note that the output and return code can be extracted from any GrADS command.
+
+Py3GrADS has built-in methods for easily analyzing the GrADS dimension environment:
+
+>>> env = ga.env()
+>>> if not env.xfixed:
+>>>     print('Current longitude range: {0}-{1}'.format(env.lon[0], env.lon[1]))
+>>> print('Number of grid points in the x-direction: '+str(env.nx))
+>>> print('Time set to: '+str(env.time))
+
+This makes GrADS scripting much easier for many tasks.
+
+In addition, Py3GrADS can extract grids directly into NumPy arrays:
+
+>>> ga('define mslp = prmslmsl/100')
+>>> mslp = ga.exp('mslp')
+>>> lons = ga.exp('lon')
+>>> lats = ga.exp('lat')
+>>> from matplotlib import pyplot as plt
+>>> plt.contourf(lons, lats, mslp)
+
+Currently, only 2-dimensional grids in the x-y plane are supported for extraction.
