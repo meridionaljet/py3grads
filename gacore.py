@@ -214,7 +214,9 @@ class Grads:
             chsize = 4096
             chunk = self.p.stdout.read(chsize)
             # We know we're at the end when we encounter an RC tag
-            if b'<RC>' in chunk:
+            # preceded by a newline. The newline is important because
+            # '<RC>' by itself can appear in a binary data stream.
+            if b'\n<RC>' in chunk:
                 # Cut out whatever data precedes the <RC> tag
                 handle.write(chunk.split(b'\n<RC>')[0])
                 # The ending character of the last chunk is arbitrary,
