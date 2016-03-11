@@ -14,6 +14,9 @@ Compatible with: GrADS 2.1.a3
 
 Author: Levi Cowan <levicowan@tropicaltidbits.com>
 """
+
+__all__ = ['GrADSError', 'PygradsError', 'Grads', 'GaEnv']
+
 import numpy as np
 from datetime import datetime
 from subprocess import Popen, PIPE, STDOUT
