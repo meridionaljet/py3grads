@@ -1,1 +1,2 @@
-__pycache__
+# Ignore compiled Python files
+__pycache__/
