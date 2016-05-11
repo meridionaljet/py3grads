@@ -14,9 +14,9 @@ Py3GrADS has only been tested with GrADS version 2.1.a3.
        INSTALLATION
 ---------------------------
 
-Py3GrADS is simply a Python module, so cloning https://github.com/meridionaljet/py3grads
-is all that is needed for installation. Note, however, that the installation directory
-must be included in your PYTHONPATH environment variable in order to import the module.
+git clone https://github.com/meridionaljet/py3grads
+cd py3grads
+python setup.py install
 
 ---------------------------
            USAGE
