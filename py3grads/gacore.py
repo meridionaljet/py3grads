@@ -3,8 +3,8 @@ Python 3 interface to GrADS, inspired by the work of Arlindo da Silva on PyGrADS
 A GrADS object is used to pass commands to a GrADS instance and parse the output.
 
 Basic Usage:
-    from py3grads import Grads
-    ga = Grads()
+    from py3grads import gacore
+    ga = gacore.Grads()
     # Example command
     output, rc = ga('query config')
 
@@ -51,40 +51,15 @@ class Grads:
             verbose: If True, will print all output.
         """
         self.verbose = verbose
-
-        # GrADS launch arguments. Ensure required flags are included.
-        args = launch.split()
-        executable = args[0]
-        opts = args[1:] if len(args) > 1 else []
-        givenflags = [a[1:] for a in args if a.startswith('-')]
-        # We may have to add new flags if required
-        newflags = ''
-        # Batch mode '-b' and unbuffered mode '-u' are required
-        for flag in 'bu':
-            if not any([flag in fset for fset in givenflags]):
-                newflags += flag
-        # Landscape or portrait mode must be specified at launch
-        if not any(['l' in fset or 'p' in fset for fset in givenflags]):
-            # Default to landscape
-            newflags += 'l'
-        args = (executable, '-'+newflags, *opts) if newflags else (executable, *opts)
-
+        self.build = 'opengrads' if 'opengrads' in launch else 'grads'
         # Launch the GrADS process
+        args = launch.split()
         self.p = Popen(args, bufsize=0, stdin=PIPE, stdout=PIPE, stderr=STDOUT,
                        universal_newlines=False)
-
         # Define regex matching ANSI formatting
         self.ansi = re.compile(r'\x1b[^m]*m')
-
         # Dismiss initial launch output
-        splashlines, rc = self._parse_output()
-
-        # Detect GrADS build if possible, but don't crash here
-        try:
-            versionstr = splashlines[0].split('Version')[-1]
-            self.build = 'opengrads' if 'oga' in versionstr else 'grads'
-        except:
-            self.build = 'grads'
+        self._parse_output()
 
     def __call__(self, gacmd):
         """
@@ -172,7 +147,8 @@ class Grads:
         Perform filtering on GrADS output, such as removing ANSI formatting.
         """
         # Filter out ANSI formatting in OpenGrADS
-        output = self.ansi.sub('', output)
+        if self.build == 'opengrads':
+            output = self.ansi.sub('', output)
         return output
 
     def cmd(self, gacmd, verbose=True, block=True, encoding='utf-8'):
@@ -188,13 +164,11 @@ class Grads:
             outlines: List of output lines from GrADS.
             rc:       GrADS return code (int)
         """
-        # Always need a carriage return at the end of the input
         if gacmd[-1] != '\n':
             gacmd += '\n'
         # Input to GrADS is always UTF-8 bytes
         self.p.stdin.write(gacmd.encode('utf-8'))
         self.p.stdin.flush()
-        # Collect output
         if block:
             # Let global verbose=False override if local verbose is True
             if verbose:
