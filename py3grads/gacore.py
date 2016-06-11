@@ -19,8 +19,9 @@ __all__ = ['GrADSError', 'PygradsError', 'Grads', 'GaEnv']
 
 import numpy as np
 from datetime import datetime
-from subprocess import Popen, PIPE, STDOUT
 from io import BytesIO
+import re
+from subprocess import Popen, PIPE, STDOUT
 
 ###############################################
 #              Custom Exceptions              #
@@ -50,10 +51,13 @@ class Grads:
             verbose: If True, will print all output.
         """
         self.verbose = verbose
+        self.build = 'opengrads' if 'opengrads' in launch else 'grads'
         # Launch the GrADS process
         args = launch.split()
         self.p = Popen(args, bufsize=0, stdin=PIPE, stdout=PIPE, stderr=STDOUT,
                        universal_newlines=False)
+        # Define regex matching ANSI formatting
+        self.ansi = re.compile(r'\x1b[^m]*m')
         # Dismiss initial launch output
         self._parse_output()
 
@@ -99,11 +103,11 @@ class Grads:
         # Output is contained within stream marker tags
         # First get to the next markstart tag
         while markstart not in out:
-            out = self.p.stdout.readline().decode(encoding)
+            out = self.filter_output(self.p.stdout.readline().decode(encoding))
             if len(out) == 0:
                 raise GrADSError("GrADS terminated.")
         # Collect output between marker tags
-        out = self.p.stdout.readline().decode(encoding)
+        out = self.filter_output(self.p.stdout.readline().decode(encoding))
         while markend not in out:
             if len(out) > 0:
                 # Get return code
@@ -117,7 +121,7 @@ class Grads:
                         print(lines[-1])
             else:
                 raise GrADSError("GrADS terminated.")
-            out = self.p.stdout.readline().decode(encoding)
+            out = self.filter_output(self.p.stdout.readline().decode(encoding))
 
         return lines, rc
 
@@ -131,12 +135,21 @@ class Grads:
         """
         out = ''
         while marker not in out:
-            out = self.p.stdout.readline().decode(encoding)
+            out = self.filter_output(self.p.stdout.readline().decode(encoding))
             if verbose:
                 print(out)
             if len(out) == 0:
                 raise GrADSError("GrADS terminated.")
         return
+
+    def filter_output(self, output):
+        """
+        Perform filtering on GrADS output, such as removing ANSI formatting.
+        """
+        # Filter out ANSI formatting in OpenGrADS
+        if self.build == 'opengrads':
+            output = self.ansi.sub('', output)
+        return output
 
     def cmd(self, gacmd, verbose=True, block=True, encoding='utf-8'):
         """
