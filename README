@@ -54,5 +54,3 @@ In addition, Py3GrADS can extract grids directly into NumPy arrays:
 >>> lats = ga.exp('lat')
 >>> from matplotlib import pyplot as plt
 >>> plt.contourf(lons, lats, mslp)
-
-Currently, only 2-dimensional grids in the x-y plane are supported for extraction.
