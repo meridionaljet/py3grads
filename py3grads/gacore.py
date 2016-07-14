@@ -8,9 +8,9 @@ Basic Usage:
     # Example command
     output, rc = ga('query config')
 
-Version: 1.0
+Version: 1.1
 
-Compatible with: GrADS 2.1.a3
+Tested with: GrADS v2.1.a3, v2.1.0
 
 Author: Levi Cowan <levicowan@tropicaltidbits.com>
 """
@@ -20,6 +20,7 @@ __all__ = ['GrADSError', 'PygradsError', 'Grads', 'GaEnv']
 import numpy as np
 from datetime import datetime
 from io import BytesIO
+from itertools import product
 import re
 from subprocess import Popen, PIPE, STDOUT
 
@@ -77,7 +78,7 @@ class Grads:
         self.ansi = re.compile(r'\x1b[^m]*m')
 
         # Dismiss initial launch output
-        splashlines, rc = self._parse_output()
+        splashlines, rc = self._parse_output(verbose=self.verbose)
 
         # Detect GrADS build if possible, but don't crash here
         try:
@@ -99,12 +100,14 @@ class Grads:
 
     def __del__(self):
         """
-        Call the GrADS quit command and close pipes. An error here is not fatal.
+        Call the GrADS quit command, close pipes, and terminate the
+        subprocess. An error here is not fatal.
         """
         try:
             self.cmd('quit')
             self.p.stdin.close()
             self.p.stdout.close()
+            self.p.terminate()
         except:
             pass
 
@@ -240,8 +243,13 @@ class Grads:
         """
         # Get the current environment
         env = self.env()
-        if (env.xfixed or env.yfixed) or (env.rank != 2):
-            raise PygradsError('Unsupported environment for export of expression: '+expr)
+        # Detect which dimensions are varying. It will be assumed that the data
+        # has the same rank as the current environment. Order the dims in the
+        # same sense as we expect them to be ordered as Numpy array axes.
+        dims = []
+        for dim in ('y','x','z','t','e'):
+            if not getattr(env, dim+'fixed'):
+                dims.append(dim)
         # Enable GrADS binary output to stream
         self.cmd('set gxout fwrite', verbose=False)
         self.cmd('set fwrite -st -', verbose=False)
@@ -271,33 +279,40 @@ class Grads:
                 handle.write(chunk)
         # For whatever reason, GrADS will sometimes return a grid offset
         # by an index or two from what the dimension environment says it
-        # should be (nx*ny). To work around this, test a few perturbations
-        # around the expected size and see if any of them work. Record
-        # tuples of ((nx,ny),size)
-        possible_sizes = []
-        for dim in ('x','y'):
-            for di in range(-2,3):
-                if dim == 'x':
-                    nx = env.nx + di; ny = env.ny
-                elif dim == 'y':
-                    nx = env.nx; ny = env.ny + di
-                possible_sizes.append( ((nx,ny),nx*ny) )
-        dims, sizes = zip(*possible_sizes)
+        # should be (e.g. nx*ny for an x-y field). To work around this,
+        # test a few perturbations around the expected size of a single
+        # dimension at a time and see if any of them work.
+        possible_shapes = []
+        dimlengths = [getattr(env, 'n'+dim) for dim in dims]
+        dim_ranges = []
+        for n in dimlengths:
+            if n > 2:
+                r = range(n-2, n+3)
+            else:
+                r = range(1, n+3)
+            dim_ranges.append(r)
+        possible_shapes = list(product(*dim_ranges))
+        possible_sizes = [np.prod(shape) for shape in possible_shapes]
         try:
             # Convert binary data to 32-bit floats
             arr = np.fromstring(handle.getvalue(), dtype=np.float32)
-            assert arr.size in sizes
+            assert arr.size in possible_sizes
         except:
-            raise PygradsError('Problems occurred while exporting GrADS expression: '+expr)
+            raise PygradsError('Problems occurred while exporting GrADS expression: '+expr
+                               +'\nCommon reasons:'
+                               +'\n\t1) Dimensions which are fixed/varying in the expression '
+                               +'\n\t   must be fixed/varying in the GrADS environment.'
+                               +'\n\t2) One or more of your GrADS dimensions may extend out of bounds.')
         else:
-            # Actual shape of the grid
-            nx, ny = dims[sizes.index(arr.size)]
+            # Actual shape of the grid. This assumes that if multiple possible
+            # shapes have the same size, the first one that works is correct.
+            shape = possible_shapes[possible_sizes.index(arr.size)]
         # Close stream
         self.cmd('disable fwrite', verbose=False)
         # Restore gxout settings, assuming typical 2D scalar field plot
         self.cmd('set gxout '+env.gx2Dscalar, verbose=False)
         # Return the Numpy array
-        arr = arr.reshape((ny, nx))
+        arr = arr.reshape(shape)
         return arr
 
 ###############################################
@@ -400,7 +415,7 @@ class GaEnv:
             else:
                 self.ne = self.ei[1] - self.ei[0] + 1
 
-            # Rank of the data field (number of dimensions)
+            # Rank of the environment space (number of dimensions)
             self.rank = sum([not d for d in
                              [self.xfixed,self.yfixed,self.zfixed,self.tfixed,self.efixed]])
 

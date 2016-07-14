@@ -1,0 +1,4 @@
+Version 1.1
+---------------
+Added support for n-dimensional array exports using ga.exp().
+When GrADS is launched with verbose=False, splash screen text is silenced.
