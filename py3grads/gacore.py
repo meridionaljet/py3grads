@@ -17,10 +17,11 @@ Author: Levi Cowan <levicowan@tropicaltidbits.com>
 
 __all__ = ['GrADSError', 'PygradsError', 'Grads', 'GaEnv']
 
-import numpy as np
+from collections import OrderedDict
 from datetime import datetime
 from io import BytesIO
 from itertools import product
+import numpy as np
 import re
 from subprocess import Popen, PIPE, STDOUT
 
@@ -86,6 +87,8 @@ class Grads:
             self.build = 'opengrads' if 'oga' in versionstr else 'grads'
         except:
             self.build = 'grads'
+
+        self.MISSING = -9.99e8
 
     def __call__(self, gacmd):
         """
@@ -213,7 +216,7 @@ class Grads:
 
         return outlines, rc
 
-    def flush(self):
+    def flush(self, encoding='utf-8'):
         """
         Flush the GrADS output pipe. This may be necessary when
         the output stream ends but the stream pointer is decoupled
@@ -221,7 +224,7 @@ class Grads:
         If it is known in advance that this will happen, calling
         flush() will reset the pointer by running an ubiquitous command.
         """
-        self.cmd('q config', verbose=False)
+        self.cmd('q config', verbose=False, encoding=encoding)
 
     def env(self, query='all'):
         """
@@ -235,45 +238,117 @@ class Grads:
 
     def exp(self, expr):
         """
-        Export a GrADS field to a Numpy array.
-        Currently only 2D xy grids are supported.
+        Export a GrADS field to a Numpy array. Since only up to 2-dimensional
+        data can be written out by GrADS, requesting arrays of rank > 2 will be
+        less efficient than defining the same array in GrADS.
 
         Args:
-            expr: The GrADS expression representing the field to be exported.
+            expr: GrADS expression representing the field to be exported.
         """
+        print('=====running ga.exp()')
         # Get the current environment
         env = self.env()
-        # Detect which dimensions are varying. It will be assumed that the data
-        # has the same rank as the current environment. Order the dims in the
-        # same sense as we expect them to be ordered as Numpy array axes.
-        dims = []
-        for dim in ('y','x','z','t','e'):
-            if not getattr(env, dim+'fixed'):
-                dims.append(dim)
+        dimnames = ('x','y','z','t','e') # ordered by GrADS read efficiency
+        # Detect which dimensions are varying
+        dims = [dim for dim in dimnames if not getattr(env, dim+'fixed')]
+        # We can only display/output data from GrADS up to 2 dimensions at a
+        # time, so for rank > 2, we must fix the extra dimensions. For best
+        # efficiency, always select the two fastest dimensions to vary.
+        varying, fixed = dims[:2], dims[2:]
+        # Varying dimensions must be ordered identically to GrADS fwrite output
+        fwrite_order = ['z','y','x','t','e']
+        varying.sort(key=lambda dim: fwrite_order.index(dim))
+        output_dims = varying + fixed
+        # For common cases, it is desirable to enforce a certain dimension
+        # order in the output array for the first two axes
+        output_orders2D = OrderedDict([
+            ('xy', ['y','x']), ('xz', ['z','x']), ('yz', ['z','y']),
+            ('xt', ['t','x']), ('yt', ['y','t']), ('zt', ['z','t'])
+        ])
+        # Check for 2D base dimensions in order of preference
+        for first2, order in output_orders2D.items():
+            if set(first2).issubset(dims):
+                ordered_dims = order + [d for d in dims if d not in order]
+                break
+        else:
+            ordered_dims = dims
+        # Read data into Numpy array
+        if len(dims) <= 2:
+            arr = self._read_array(expr, varying)
+        else:
+            dimvals = {}
+            for dim in dims:
+                mn, mx = getattr(env, dim+'i')
+                dimvals[dim] = range(mn, mx+1)
+            # Sets of fixed coordinates for which to request arrays while the
+            # first two (most efficient) dimensions vary
+            coordinates = product(*[dimvals[dim] for dim in fixed])
+            arr = None # Need to wait to define until we know shape of arr1D
+            for coords in coordinates:
+                # Set fixed dimemsions and get array indices
+                idx = []
+                for dim, c in zip(fixed, coords):
+                    self.cmd('set {dim} {c}'.format(dim=dim, c=c))
+                    idx.append(dimvals[dim].index(c))
+                # Get 2D array
+                arr2D = self._read_array(expr, varying)
+                # Define full data array
+                if arr is None:
+                    arr = np.zeros(arr2D.shape + tuple(len(dimvals[d]) for d in fixed))
+                # Assign data along first two dimensions
+                arr[(slice(None), slice(None)) + tuple(idx)] = arr2D
+        # Re-order axes if necessary
+        axes = [(i, output_dims.index(d)) for i, d in zip(range(len(dims)), ordered_dims)]
+        swapped = []
+        for a1, a2 in axes:
+            pair = sorted([a1, a2])
+            if a1 != a2 and pair not in swapped:
+                arr = np.swapaxes(arr, a1, a2)
+                swapped.append(pair)
+        # Restore original GrADS dimension environment
+        for dim in dims:
+            mn, mx = getattr(env, dim)
+            self.cmd('set {dim} {mn} {mx}'.format(dim=dim, mn=mn, mx=mx))
+        return arr
+
+    def _read_array(self, expr, dims):
+        """
+        Read a GrADS field into a Numpy array. The rank of the array must
+        be 2 or less.
+
+        Args:
+            expr: GrADS expression representing the field to be read.
+            dims: List of GrADS varying dimension names defining the
+                  space occupied by expr.
+        """
+        encoding = 'latin-1'
+        env = self.env()
         # Enable GrADS binary output to stream
         self.cmd('set gxout fwrite', verbose=False)
         self.cmd('set fwrite -st -', verbose=False)
         # Don't block output here so we can intercept the data stream
         self.cmd('display '+expr, verbose=False, block=False)
         # Move stream pointer to '<FWRITE>'
-        self.move_pointer('<FWRITE>', encoding='latin-1', verbose=False)
+        self.move_pointer('<FWRITE>', encoding=encoding, verbose=False)
         # Read binary data from stream
         handle = BytesIO()
+        chsize = 4096 # Read data in 512 byte chunks
+        rcpattern = re.compile(b'\\n\<RC\>\s?-?\d+\s?\<\/RC\>') # pattern of RC tag
         while True:
-            # Read data in 512 byte chunks
-            chsize = 4096
             chunk = self.p.stdout.read(chsize)
-            # We know we're at the end when we encounter an RC tag
-            # preceded by a newline. The newline is important because
-            # '<RC>' by itself can appear in a binary data stream.
-            if b'\n<RC>' in chunk:
+            # We know we're at the end when we encounter a return code wrapped
+            # in RC tags, immediately following a newline. (\n<RC> {number} </RC>)
+            # Must be very precise in detecting this because '<RC>' by itself
+            # can appear in a binary data stream.
+            endmatch = rcpattern.search(chunk)
+            if endmatch:
                 # Cut out whatever data precedes the <RC> tag
-                handle.write(chunk.split(b'\n<RC>')[0])
+                handle.write(chunk[:endmatch.span()[0]])
                 # The ending character of the last chunk is arbitrary,
                 # we only know that <RC> is in it.
                 # Thus, need to flush GrADS pipes to avoid hanging
                 # and reset the pointer to the next marker.
-                self.flush()
+                self.flush(encoding=encoding)
                 break
             else:
                 handle.write(chunk)
@@ -291,6 +366,7 @@ class Grads:
             else:
                 r = range(1, n+3)
             dim_ranges.append(r)
+        # Remember, dim order determines how the shape tuples here are ordered
         possible_shapes = list(product(*dim_ranges))
         possible_sizes = [np.prod(shape) for shape in possible_shapes]
         try:
@@ -313,6 +389,7 @@ class Grads:
         self.cmd('set gxout '+env.gx2Dscalar, verbose=False)
         # Return the Numpy array
         arr = arr.reshape(shape)
+        arr[arr == self.MISSING] = np.nan
         return arr
 
 ###############################################
@@ -369,10 +446,12 @@ class GaEnv:
             if self.zfixed:
                 self.lev = float(zinfo[5])
                 self.z = float(zinfo[8])
+                self.p = float(zinfo[5])
                 self.zi = int(np.round(self.z))
             else:
                 self.lev = (float(zinfo[5]), float(zinfo[7]))
                 self.z = (float(zinfo[10]), float(zinfo[12]))
+                self.p = (float(zinfo[5]), float(zinfo[7]))
                 self.zi = (int(np.floor(self.z[0])), int(np.ceil(self.z[1])))
             tinfo = qdims[4].split()
             if self.tfixed:
@@ -466,3 +545,16 @@ class GaEnv:
                 self.stationData = None
             else:
                 self.stationData = stationData
+
+        # Query gxinfo
+        if query in ('gxinfo', 'all'):
+            qgxinfo, rc = ga.cmd('query gxinfo', verbose=ga.verbose)
+            if rc > 0:
+                raise GrADSError('Error running "query gxinfo"')
+            # Get page limits and the current plot's limits in page coordinates
+            line1 = qgxinfo[1].split()
+            self.pagewidth, self.pageheight = line1[3], line1[5]
+            line2 = qgxinfo[2].split()
+            self.Xplot = (float(line2[3]), float(line2[5]))
+            line3 = qgxinfo[3].split()
+            self.Yplot = (float(line3[3]), float(line3[5]))
