@@ -245,7 +245,6 @@ class Grads:
         Args:
             expr: GrADS expression representing the field to be exported.
         """
-        print('=====running ga.exp()')
         # Get the current environment
         env = self.env()
         dimnames = ('x','y','z','t','e') # ordered by GrADS read efficiency
