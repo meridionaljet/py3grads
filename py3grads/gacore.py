@@ -351,44 +351,51 @@ class Grads:
                 break
             else:
                 handle.write(chunk)
-        # For whatever reason, GrADS will sometimes return a grid offset
-        # by an index or two from what the dimension environment says it
-        # should be (e.g. nx*ny for an x-y field). To work around this,
-        # test a few perturbations around the expected size of a single
-        # dimension at a time and see if any of them work.
-        possible_shapes = []
+        # If GrADS is sane, normal behavior is to return the array of grid points
+        # big enough to completely enclose or overlap the set domain.
         dimlengths = [getattr(env, 'n'+dim) for dim in dims]
-        dim_ranges = []
-        for n in dimlengths:
-            if n > 2:
-                r = range(n-2, n+3)
-            else:
-                r = range(1, n+3)
-            dim_ranges.append(r)
-        # Remember, dim order determines how the shape tuples here are ordered
-        possible_shapes = list(product(*dim_ranges))
-        possible_sizes = [np.prod(shape) for shape in possible_shapes]
+        guess_shape = tuple(dimlengths)
+        guess_size = int(np.prod(guess_shape))
         try:
             # Convert binary data to 32-bit floats
             arr = np.fromstring(handle.getvalue(), dtype=np.float32)
-            assert arr.size in possible_sizes
         except:
             raise PygradsError('Problems occurred while exporting GrADS expression: '+expr
                                +'\nCommon reasons:'
                                +'\n\t1) Dimensions which are fixed/varying in the expression '
                                +'\n\t   must be fixed/varying in the GrADS environment.'
                                +'\n\t2) One or more of your GrADS dimensions may extend out of bounds.')
+        # If all is sane and expected
+        if arr.size == guess_size:
+            shape = guess_shape
         else:
+            # For whatever reason, GrADS will sometimes return a grid offset
+            # by an index or two from what the dimension environment says it
+            # should be (e.g. nx*ny for an x-y field). To work around this,
+            # test a few perturbations around the expected size of a single
+            # dimension at a time and see if any of them work.
+            possible_shapes = []
+            dim_ranges = []
+            for n in dimlengths:
+                if n > 2:
+                    r = range(n-2, n+3)
+                else:
+                    r = range(1, n+3)
+                dim_ranges.append(r)
+            # Remember, dim order determines how the shape tuples here are ordered
+            possible_shapes = list(product(*dim_ranges))
+            possible_sizes = [np.prod(shape) for shape in possible_shapes]
             # Actual shape of the grid. This assumes that if multiple possible
             # shapes have the same size, the first one that works is correct.
+            # This will not always be true...blame GrADS for having unpredictable
+            # grid sizes
             shape = possible_shapes[possible_sizes.index(arr.size)]
+        arr = arr.reshape(shape)
+        arr[arr == self.MISSING] = np.nan
         # Close stream
         self.cmd('disable fwrite', verbose=False)
         # Restore gxout settings, assuming typical 2D scalar field plot
         self.cmd('set gxout '+env.gx2Dscalar, verbose=False)
-        # Return the Numpy array
-        arr = arr.reshape(shape)
-        arr[arr == self.MISSING] = np.nan
         return arr
 
 ###############################################
