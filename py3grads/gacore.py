@@ -460,13 +460,17 @@ class GaEnv:
                 self.p = (float(zinfo[5]), float(zinfo[7]))
                 self.zi = (int(np.floor(self.z[0])), int(np.ceil(self.z[1])))
             tinfo = qdims[4].split()
+            if len(tinfo[5]) > 12:
+                timefmt = '%H:%MZ%d%b%Y'
+            else:
+                timefmt = '%HZ%d%b%Y'
             if self.tfixed:
-                self.time = datetime.strptime(tinfo[5], '%HZ%d%b%Y')
+                self.time = datetime.strptime(tinfo[5], timefmt)
                 self.t = float(tinfo[8])
                 self.ti = int(np.round(self.t))
             else:
-                self.time = (datetime.strptime(tinfo[5], '%HZ%d%b%Y'),
-                             datetime.strptime(tinfo[7], '%HZ%d%b%Y'))
+                self.time = (datetime.strptime(tinfo[5], timefmt),
+                             datetime.strptime(tinfo[7], timefmt))
                 self.t = (float(tinfo[10]), float(tinfo[12]))
                 self.ti = (int(np.floor(self.t[0])), int(np.ceil(self.t[1])))
             einfo = qdims[5].split()
