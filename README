@@ -14,7 +14,7 @@ Py3GrADS has only been tested with GrADS v2.1.a3 and v2.1.0.
        INSTALLATION
 ---------------------------
 
-`pip install git+https://github.com/meridionaljet/py3grads`
+`pip install py3grads` or `uv pip install py3grads`
 
 ---------------------------
            USAGE
