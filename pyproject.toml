@@ -1,11 +1,11 @@
 [project]
 name = 'py3grads'
-version = '2024.5.11'
+version = '2025.6.25'
 description = "Py3GrADS is a Python module providing an interface to the GrADS meteorological plotting program. This interface is independent from but inspired by Arlindo da Silva's work on PyGrADS. As of this writing, PyGrADS doesn't support Python 3, and Py3GrADS was developed to fill this hole. Py3GrADS lacks some of the deeper features of PyGrADS, but has some unique functionality of its own as well."
 authors = [{ name = 'Levi Cowan' }]
 license = { text = 'MIT' }
 requires-python = '>=3.6'
-dependencies = ['numpy']
+dependencies = ['numpy>=1.20.0']
 
 [project.urls]
 repository = 'https://github.com/meridionaljet/py3grads'

@@ -330,7 +330,7 @@ class Grads:
         # Move stream pointer to '<FWRITE>'
         self.move_pointer('<FWRITE>', encoding=encoding, verbose=False)
         # Read binary data from stream
-        handle = BytesIO()
+        handle = bytearray()
         chsize = 4096 # Read data in 512 byte chunks
         rcpattern = re.compile(b'\\n\<RC\>\s?-?\d+\s?\<\/RC\>') # pattern of RC tag
         while True:
@@ -342,7 +342,7 @@ class Grads:
             endmatch = rcpattern.search(chunk)
             if endmatch:
                 # Cut out whatever data precedes the <RC> tag
-                handle.write(chunk[:endmatch.span()[0]])
+                handle.extend(chunk[:endmatch.span()[0]])
                 # The ending character of the last chunk is arbitrary,
                 # we only know that <RC> is in it.
                 # Thus, need to flush GrADS pipes to avoid hanging
@@ -350,7 +350,7 @@ class Grads:
                 self.flush(encoding=encoding)
                 break
             else:
-                handle.write(chunk)
+                handle.extend(chunk)
         # If GrADS is sane, normal behavior is to return the array of grid points
         # big enough to completely enclose or overlap the set domain.
         dimlengths = [getattr(env, 'n'+dim) for dim in dims]
@@ -358,7 +358,7 @@ class Grads:
         guess_size = int(np.prod(guess_shape))
         try:
             # Convert binary data to 32-bit floats
-            arr = np.fromstring(handle.getvalue(), dtype=np.float32)
+            arr = np.frombuffer(handle, dtype=np.float32)
         except:
             raise PygradsError('Problems occurred while exporting GrADS expression: '+expr
                                +'\nCommon reasons:'
